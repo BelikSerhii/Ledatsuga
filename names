@@ -1,0 +1,134 @@
+import random
+import time
+from web3 import Web3
+import string
+
+# RPC URL для підключення до тестової мережі
+rpc_url = 'https://bera-testnet.nodeinfra.com'
+web3 = Web3(Web3.HTTPProvider(rpc_url))
+
+# Адреса контракту
+contract_address = '0xccc13A84eC34f3b1FbEF193557a68F9af2173Ab9'
+
+# Функція для генерації нікнеймів від 5 до 10 символів (тільки літери)
+def generate_random_nickname():
+    length = random.randint(5, 10)  # Довжина нікнейму
+    return ''.join(random.choices(string.ascii_lowercase, k=length))
+
+# Зчитуємо гаманці з файлу wallets.txt
+def read_wallets():
+    with open('wallets.txt', 'r') as file:
+        wallets = file.readlines()
+    return [wallet.strip() for wallet in wallets]
+
+# Читаємо нікнейми з файлу names.txt
+def read_names():
+    with open('names.txt', 'r') as file:
+        names = file.readlines()
+    return [name.strip() for name in names]
+
+# Функція для отримання динамічного газу та ліміту
+def get_dynamic_gas():
+    gas_price = web3.eth.gas_price  # Поточна ціна газу
+    gas_limit = random.randint(350000, 500000)  # Динамічний ліміт газу в межах від 200k до 400k
+    return gas_price, gas_limit
+
+# Читаємо гаманці та нікнейми з файлів
+wallets = read_wallets()
+names = read_names()
+
+# Оновлене ABI контракту
+contract_abi = [
+    {
+        "inputs": [
+            {
+                "internalType": "tuple",
+                "name": "request",
+                "type": "tuple",
+                "components": [
+                    {"internalType": "string", "name": "name", "type": "string"},
+                    {"internalType": "address", "name": "owner", "type": "address"},
+                    {"internalType": "uint256", "name": "duration", "type": "uint256"},
+                    {"internalType": "address", "name": "resolver", "type": "address"},
+                    {"internalType": "bytes[]", "name": "data", "type": "bytes[]"},
+                    {"internalType": "bool", "name": "reverseRecord", "type": "bool"},
+                    {"internalType": "address", "name": "referrer", "type": "address"}
+                ]
+            }
+        ],
+        "name": "register",
+        "outputs": [],
+        "stateMutability": "payable",
+        "type": "function"
+    }
+]
+
+# Ініціалізація контракту
+contract = web3.eth.contract(address=contract_address, abi=contract_abi)
+
+# Параметри для кожної транзакції
+transaction_count = (100, 150)  # Від 100 до 150 транзакцій для кожного гаманця
+transaction_pause = (5, 10)   # Пауза між транзакціями від 5 до 10 секунд
+wallet_pause = (20, 60)      # Пауза між гаманцями від 20 до 60 секунд
+
+# Основний цикл для обробки кожного гаманця
+for wallet in wallets:
+    private_key = wallet.strip()
+    account = web3.eth.account.from_key(private_key)
+
+    print(f"Processing wallet {account.address}")
+
+    # Визначення кількості транзакцій для цього гаманця
+    num_transactions = random.randint(transaction_count[0], transaction_count[1])
+
+    # Виконання транзакцій для кожного гаманця
+    for i in range(num_transactions):
+        # Якщо ще є доступні нікнейми
+        if names:
+            # Вибір випадкового нікнейму з залишкових
+            nickname = random.choice(names)
+            # Видаляємо цей нікнейм з подальших варіантів
+            names.remove(nickname)
+        else:
+            print("No more names left to mint!")
+            break
+
+        # Отримання динамічного газу
+        gas_price, gas_limit = get_dynamic_gas()
+
+        # Параметри для функції register
+        register_request = (
+            nickname,  # Ім'я для реєстрації (тип string)
+            account.address,  # Власник імені (адреса самого гаманця)
+            157680000,  # 5 років у секундах (в якості duration)
+            Web3.to_checksum_address("0x34bb7cc576fa4b5f31f984a65ddb7ff78b8ecbe0"),  # Адреса резольвера
+            [],  # Додаткові дані (якщо є)
+            False,  # Чи потрібен зворотній запис (reverseRecord)
+            Web3.to_checksum_address("0x0000000000000000000000000000000000000000")  # Адреса реферера
+        )
+
+        # Підготовка транзакції
+        tx = contract.functions.register(register_request).build_transaction({
+            'from': account.address,
+            'value': web3.to_wei(3, 'ether'),  # Вартість у Bera
+            'gas': gas_limit,
+            'gasPrice': gas_price,
+            'nonce': web3.eth.get_transaction_count(account.address),
+        })
+
+        try:
+            # Підписання транзакції
+            signed_tx = web3.eth.account.sign_transaction(tx, private_key=private_key)
+
+            # Надсилання транзакції
+            tx_hash = web3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            print(f'Transaction sent! Hash: {web3.to_hex(tx_hash)}')
+        
+        except Exception as e:
+            print(f"Error processing transaction: {str(e)}")
+        
+        # Пауза між транзакціями
+        time.sleep(random.randint(transaction_pause[0], transaction_pause[1]))
+    
+    # Пауза між гаманцями
+    time.sleep(random.randint(wallet_pause[0], wallet_pause[1]))
